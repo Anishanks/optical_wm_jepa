@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pt
+*.h5
+checkpoints/
+venv/
+.env
