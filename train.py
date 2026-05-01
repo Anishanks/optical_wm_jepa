@@ -150,7 +150,7 @@ class HDF5BatchSampler:
 # Collapse monitor
 # =====================================================================
 
-def check_collapse(zs: torch.Tensor, threshold: float = 0.05) -> dict:
+def check_collapse(zs: torch.Tensor, threshold: float = 0.10) -> dict:
     """Check if latent dimensions have collapsed (std too low).
 
     Args:
@@ -185,7 +185,7 @@ def train(
     ema_tau: float = 0.99,
     d_z: int = 128,
     use_vicreg: bool = False,
-    vicreg_lambda: float = 0.1,
+    vicreg_lambda: float = 1.0,
     log_every: int = 5,
     device_str: str = 'auto',
 ):
