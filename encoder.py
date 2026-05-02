@@ -4,11 +4,11 @@ Encoder for the optical WM JEPA.
 Option A (PoC-safe): Conv1D spectral branch + masked LP MLP + fusion.
 No GNN — topology is fixed (11 links) and pooling captures enough.
 
-FIXES APPLIED:
-- Removed ReLU at fusion output (critical for collapse prevention)
-- Replaced naive mean link pooling with attention pooling
-- Kept LayerNorm (safe)
-- Kept architecture simple (no over-engineering)
+FIXES APPLIED (collapse root cause):
+- BatchNorm1d after each Conv1d (prevents activation collapse on sparse input)
+- mean+max pool over slots instead of mean only (preserves diversity)
+- attention pool over links (instead of mean collapse)
+- NO ReLU at any output (Linear → LayerNorm only at fusion)
 """
 
 import torch
@@ -30,20 +30,27 @@ class SpectralEncoder(nn.Module):
         self.n_links = n_links
         self.n_slots = n_slots
 
+        # 🔥 FIX: BatchNorm1d after each Conv1d
+        # Prevents activation collapse on sparse input (~90% zeros)
         self.conv = nn.Sequential(
             nn.Conv1d(3, hidden, kernel_size=5, padding=2),
+            nn.BatchNorm1d(hidden),
             nn.ReLU(),
             nn.Conv1d(hidden, hidden, kernel_size=5, padding=2),
+            nn.BatchNorm1d(hidden),
             nn.ReLU(),
             nn.Conv1d(hidden, hidden, kernel_size=3, padding=1),
+            nn.BatchNorm1d(hidden),
             nn.ReLU(),
         )
 
-        self.link_proj = nn.Linear(hidden, out_dim)
+        # 🔥 FIX: link_proj input doubled because we concat mean+max
+        self.link_proj = nn.Linear(2 * hidden, out_dim)
 
         # 🔥 attention over links (instead of mean collapse)
         self.link_attn = nn.Linear(out_dim, 1)
 
+        # 🔥 FIX: pool_proj without ReLU (allow negative dims)
         self.pool_proj = nn.Linear(out_dim, out_dim)
 
     def forward(self, occupancy, gsnr, nli):
@@ -57,8 +64,11 @@ class SpectralEncoder(nn.Module):
 
         x = self.conv(x)
 
-        # [B*links, hidden]
-        x = x.mean(dim=-1)
+        # 🔥 FIX: mean+max pool over slots (was just mean)
+        # Preserves more spatial info — peaks survive averaging
+        x_mean = x.mean(dim=-1)
+        x_max  = x.max(dim=-1).values
+        x = torch.cat([x_mean, x_max], dim=-1)   # [B*links, 2*hidden]
 
         x = self.link_proj(x)
 
