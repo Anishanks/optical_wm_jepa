@@ -60,10 +60,7 @@ class JEPAWorldModel(nn.Module):
         # prediction
         z_pred = self.predictor(z_t, actions)
 
-        # normalized MSE (IMPORTANT for stability)
-        z_pred = F.normalize(z_pred, dim=-1)
-        z_target = F.normalize(z_target, dim=-1)
-
+        # raw MSE in latent space (no F.normalize — interferes with VICReg)
         loss = F.mse_loss(z_pred, z_target)
 
         return {
@@ -101,3 +98,10 @@ def vicreg_loss(z, lambda_var=25.0, lambda_cov=1.0):
     cov_loss = (cov ** 2).sum() / D
 
     return lambda_var * var_loss + lambda_cov * cov_loss
+
+
+# =====================================================
+# Utils
+# =====================================================
+def count_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
