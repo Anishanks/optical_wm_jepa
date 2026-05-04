@@ -1,5 +1,11 @@
 """
-JEPA World Model for optical networks (stable version)
+JEPA World Model for optical networks (stable version with residual prediction)
+
+Key fix: predictor outputs the DELTA (z_target - z_t) instead of the absolute
+z_target. This addresses the dataset's low signal-to-noise ratio at short
+horizons, where most transitions barely change the latent — without the
+residual formulation, the predictor injects noise rather than learning the
+small but meaningful delta.
 """
 
 import copy
@@ -33,7 +39,7 @@ class JEPAWorldModel(nn.Module):
         self.predictor = Predictor(d_z=d_z)
 
     # =====================================================
-    # EMA update (MUST be called externally each step)
+    # EMA update (called externally each step)
     # =====================================================
     @torch.no_grad()
     def update_target_encoder(self):
@@ -53,24 +59,27 @@ class JEPAWorldModel(nn.Module):
         # online encoding
         z_t = self.encoder(s_t)
 
-        # target encoding (fixed graph)
+        # target encoding (stop-gradient via no_grad)
         with torch.no_grad():
             z_target = self.target_encoder(s_tk)
 
-        # prediction
-        z_pred = self.predictor(z_t, actions)
+        # 🔥 RESIDUAL PREDICTION
+        # Predictor outputs delta_z, we add z_t to get z_pred.
+        # Equivalent to learning MSE(delta_pred, z_target - z_t).
+        # If the predictor outputs zero, z_pred = z_t = baseline,
+        # which is a sensible default for low-change transitions.
+        delta_z = self.predictor(z_t, actions)
+        z_pred = z_t + delta_z
 
-        # normalized MSE (IMPORTANT for stability)
-        z_pred = F.normalize(z_pred, dim=-1)
-        z_target = F.normalize(z_target, dim=-1)
-
+        # raw MSE in latent space (no F.normalize — interferes with VICReg)
         loss = F.mse_loss(z_pred, z_target)
 
         return {
             "loss": loss,
             "z_t": z_t,
             "z_pred": z_pred,
-            "z_target": z_target
+            "z_target": z_target,
+            "delta_z": delta_z,   # exposed for diagnostics
         }
 
     # =====================================================
@@ -81,12 +90,14 @@ class JEPAWorldModel(nn.Module):
             return self.encoder(s)
 
     def predict(self, z_t, actions):
+        """Inference: returns the absolute predicted latent."""
         with torch.no_grad():
-            return self.predictor(z_t, actions)
+            delta_z = self.predictor(z_t, actions)
+            return z_t + delta_z
 
 
 # =====================================================
-# VICReg (OK version)
+# VICReg (kept identical)
 # =====================================================
 def vicreg_loss(z, lambda_var=25.0, lambda_cov=1.0):
 
@@ -101,3 +112,10 @@ def vicreg_loss(z, lambda_var=25.0, lambda_cov=1.0):
     cov_loss = (cov ** 2).sum() / D
 
     return lambda_var * var_loss + lambda_cov * cov_loss
+
+
+# =====================================================
+# Utils
+# =====================================================
+def count_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
