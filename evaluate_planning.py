@@ -210,7 +210,7 @@ def evaluate_protocol_1(
     sampler: HDF5BatchSampler,
     norm_stats: dict,
     device: torch.device,
-    horizons: List[int] = (5, 10),
+    horizons: List[int] = (5, 10, 25),
     n_pairs_per_h: int = 50,
     cem_n_samples: int = 200,
     cem_n_iter: int = 5,
