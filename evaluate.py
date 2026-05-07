@@ -199,7 +199,7 @@ def run_rollout_eval(
     sampler: HDF5BatchSampler,
     norm_stats: dict,
     device: torch.device,
-    horizons: List[int] = (1, 2, 5, 10, 25),
+    horizons: List[int] = (1, 2, 5, 10, 25, 50),
     n_samples: int = 500,
 ) -> Dict[int, Dict[str, float]]:
     """Measure prediction error vs horizon h.
